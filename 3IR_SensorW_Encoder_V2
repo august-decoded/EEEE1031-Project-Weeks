@@ -1,0 +1,188 @@
+#include <LiquidCrystal.h>
+
+// Motor Pins
+int ENA = 3; 
+int ENB = 11;
+int IN1 = A2;
+int IN2 = 12;
+int IN3 = 1;
+int IN4 = 13;
+
+// IR Sensors
+int irsR = A1;
+int irsC = A4; 
+int irsL = A3;
+
+// LCD
+LiquidCrystal lcd(8,9,4,5,6,7); // RS, E, D4, D5, D6, D7 (no need declaration for pins in LCD, due to shield)
+
+// Encoder 
+int EP1 = 2; 
+int EP2 = 1;
+
+int debounce = 0;
+const int pulsePerRev = 20;
+float wheelDia = 65; // in mm
+float wheelCircum = wheelDia  * 3.14159;
+
+volatile long pulses_1 = 0;
+int pulses_2 = 0;
+int EP2_state = 0;
+int EP2_prevState = 0;
+
+unsigned long PrevTime = 0;
+float distTravel_1 = 0;
+float distTravel_2 = 0;
+float distTravel = 0;
+
+unsigned long prevInterrupt = 0;
+unsigned long lastEP2Time = 0;
+const int EP2_debounce = 1;
+
+void setup() {
+
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  pinMode(irsR, INPUT);
+  pinMode(irsC, INPUT); 
+  pinMode(irsL, INPUT);
+
+  pinMode(EP1, INPUT_PULLUP);
+  pinMode(EP2, INPUT_PULLUP);
+
+  lcd.begin(16, 2);
+  lcd.clear();
+
+  EP2_prevState = digitalRead(EP2);
+  attachInterrupt(digitalPinToInterrupt(EP1), Counter, RISING);
+}
+
+void loop(){
+  EP2_state = digitalRead(EP2);
+  if (millis() - PrevTime >= 500) {
+    noInterrupts();
+    distTravel_1 = (pulses_1 * wheelCircum / pulsePerRev) / 10.0;  // in cm
+    interrupts();
+    PrevTime = millis();
+  }
+
+  if (EP2_state == HIGH && EP2_prevState == LOW && (millis() - lastEP2Time > EP2_debounce)){
+    pulses_2++;
+    distTravel_2 = (pulses_2 / (float) pulsePerRev) * (wheelCircum / 10.0);
+    lastEP2Time = millis();
+  }
+  EP2_prevState = EP2_state;
+  distTravel = ((distTravel_1 + distTravel_2) / 2.0 );
+
+  lcd.setCursor(0,0);
+  lcd.print("Dist:");
+  lcd.print(distTravel);
+  lcd.print("cm     ");
+
+  int L = debounceIR(irsL);
+  int C = debounceIR(irsC);
+  int R = debounceIR(irsR);
+
+  lcd.setCursor(0,1);
+  lcd.print("Time : ");
+  lcd.print(millis() / 1000.0);
+  lcd.print("s       ");
+
+  int spd = 180;
+  int t_spd = 255;
+
+  if (L == 0 && C == 1 && R == 0) { // Black line in the middle
+    Forward(spd);
+  }
+  else if (L == 1 && C == 1 && R == 0) { 
+    Left(t_spd);
+  }
+  else if (L == 0 && C == 1 && R == 1) {
+    Right(t_spd);
+  }
+  else if (L == 1 && C == 0 && R == 0) {
+    Left(t_spd);
+    delay(200);
+    STOP();
+  }
+  else if (L == 0 && C == 0 && R == 1) {
+    Right(t_spd);
+    delay(200);
+    STOP();
+  }
+  else if (L == 0 && C == 0 && R == 0) {
+    Forward(spd);
+  }
+  else if (L == 1 && C == 1 && R == 1) { // All see black, must stop
+    STOP();
+  }
+  else if (L == 1 && C == 0 && R == 1) { 
+    STOP();
+  }
+}
+
+void Counter() {
+  unsigned long RIGHT_NOW = micros();
+  if (RIGHT_NOW - prevInterrupt > 100){  
+    pulses_1++;
+    prevInterrupt = RIGHT_NOW;
+  }
+}
+
+int debounceIR(int pin) {
+  int v1 = digitalRead(pin);
+  delayMicroseconds(50);
+  int v2 = digitalRead(pin);
+  return (v1 == v2) ? v1 : 0;
+}
+
+void Forward(int spd){
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, spd);
+  analogWrite(ENB, spd);
+}
+
+void STOP(){
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+}
+
+void Back(int spd){
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, spd);
+  analogWrite(ENB, spd);
+}
+
+void Left(int spd){
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, spd);
+  analogWrite(ENB, spd);
+}
+
+void Right(int spd){
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, spd);
+  analogWrite(ENB, spd);
+}
+
